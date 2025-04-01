@@ -1,0 +1,15 @@
+openai
+pinecone
+faiss-cpu
+langchain
+langgraph
+tiktoken
+beautifulsoup4
+requests
+nltk
+dotenv
+tiktoken
+json5
+selenium
+webdriver-manager
+langchain-openai
