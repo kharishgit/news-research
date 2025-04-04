@@ -23,7 +23,7 @@ def retrieve_similar_news(query, top_k=5):
 
 llm = ChatOpenAI(model="gpt-3.5-turbo", api_key=OPENAI_API_KEY)
 prompt = ChatPromptTemplate.from_template(
-    "Summarize these articles in simple terms:\n{context}\nThen answer this question: {query}"
+    "Summarize these articles in simple terms:\n{context}\nAnswer this question: {query}\nThen suggest 2 follow-up questions."
 )
 
 def get_answer(query):
