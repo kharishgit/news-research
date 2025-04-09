@@ -13,3 +13,5 @@ json5
 selenium
 webdriver-manager
 langchain-openai
+streamlit
+langchain-pinecone

@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from dotenv import load_dotenv
-from langchain_pinecone import PineconeVectorStore  # Confirmed working import
+from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,14 +12,14 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-# Connect to Pinecone
-pc = PineconeClient(api_key=PINECONE_API_KEY)
-index_name = "news-research-assistant"
-index = pc.Index(index_name)
+def init_vectorstore():
+    pc = PineconeClient(api_key=PINECONE_API_KEY)
+    index_name = "news-research-assistant"
+    index = pc.Index(index_name)
+    embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=OPENAI_API_KEY)
+    return PineconeVectorStore(index, embedding_model, text_key="text")
 
-# Set up embeddings and vector store
-embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=OPENAI_API_KEY)
-vectorstore = PineconeVectorStore(index, embedding_model, text_key="text")
+vectorstore = init_vectorstore()  # Initialize once
 
 # Define retrieval function
 def retrieve_similar_news(query, top_k=5):
