@@ -1,112 +1,86 @@
-# import json
-# from pinecone import Pinecone, ServerlessSpec
-# from langchain_openai import OpenAIEmbeddings
-# from langchain.text_splitter import RecursiveCharacterTextSplitter
-# from dotenv import load_dotenv
-
-# # Load environment variables from .env file
-# load_dotenv()
-
-# # Load combined news
-# with open("all_news.json", "r", encoding="utf-8") as f:
-#     all_news = json.load(f)
-
-# # Combine title, link, and source into text
-# texts = [f"{a['title']} Source: {a['source']} Read more: {a['link']}" for a in all_news]
-
-# # Chunk the text (optional, titles are short but good practice)
-# splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-# chunks = splitter.split_text("\n".join(texts))
-
-# # Set up embeddings
-# embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
-
-# # Connect to Pinecone
-# pc = Pinecone()
-# index_name = "news-research-assistant"
-
-# # Create index if it doesn’t exist
-# if index_name not in pc.list_indexes().names():
-#     pc.create_index(
-#         name=index_name,
-#         dimension=1536,  # OpenAI embedding size
-#         metric="cosine",
-#         spec=ServerlessSpec(cloud="aws", region="us-east-1")
-#     )
-
-# # Connect to the index
-# index = pc.Index(index_name)
-
-# # Embed and store chunks
-# vectors = []
-# for i, chunk in enumerate(chunks):
-#     vector = embeddings.embed_query(chunk)
-#     metadata = {"text": chunk, "source": "Mixed"}  # Source is in text already
-#     vectors.append({"id": f"chunk_{i}", "values": vector, "metadata": metadata})
-
-# index.upsert(vectors)
-# print(f"Stored {len(vectors)} chunks in Pinecone")
-
 import json
-import os
-import time
-from dotenv import load_dotenv
-from pinecone import Pinecone, ServerlessSpec
+from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings
+from pinecone import Pinecone as PineconeClient, ServerlessSpec
+from dotenv import load_dotenv
+import os
 
-# Load environment variables
+# Load environment
 load_dotenv()
-pinecone_api_key = os.getenv("PINECONE_API_KEY")
-openai_api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+if not OPENAI_API_KEY or not PINECONE_API_KEY:
+    print("Error: Missing API keys in .env")
+    exit()
 
-# Load news data
-with open("all_news.json", "r", encoding="utf-8") as f:
-    all_news = json.load(f)
-    print("Total articles:", len(all_news))
-    print("Sample article:", all_news[0])
+# Initialize Pinecone
+try:
+    pc = PineconeClient(api_key=PINECONE_API_KEY)
+except Exception as e:
+    print(f"Failed to connect to Pinecone: {e}")
+    exit()
 
-# Create chunks
-chunks = [f"{a['title']} Source: {a['source']} Read more: {a['link']}" for a in all_news]
-print("Total chunks:", len(chunks))
-print("First chunk:", chunks[0])
-
-# Set up embeddings
-embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=openai_api_key)
-
-# Connect to Pinecone
-pc = Pinecone(api_key=pinecone_api_key)
+# Create or clear index
 index_name = "news-research-assistant"
-
-# Delete and recreate index
 if index_name in pc.list_indexes().names():
-    pc.delete_index(index_name)
-    print("Deleted old index")
+    pc.delete_index(index_name)  # Clear old data
+try:
+    pc.create_index(
+        name=index_name,
+        dimension=1536,  # text-embedding-ada-002
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+    )
+    print(f"Created index: {index_name}")
+except Exception as e:
+    print(f"Failed to create index: {e}")
+    exit()
 
-pc.create_index(
-    name=index_name,
-    dimension=1536,
-    metric="cosine",
-    spec=ServerlessSpec(cloud="aws", region="us-east-1")
-)
+# Load embedding model
+try:
+    embedding_model = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=OPENAI_API_KEY)
+except Exception as e:
+    print(f"Failed to load embedding model: {e}")
+    exit()
 
-# Connect to the index
-index = pc.Index(index_name)
+# Load all_news.json
+try:
+    with open("all_news.json", "r", encoding="utf-8") as f:
+        articles = json.load(f)
+except FileNotFoundError:
+    print("Error: all_news.json not found")
+    exit()
+except json.JSONDecodeError:
+    print("Error: Invalid JSON in all_news.json")
+    exit()
 
-# Embed and store chunks
-vectors = []
-for i, chunk in enumerate(chunks):
-    vector = embedding_model.embed_query(chunk)
-    metadata = {"text": chunk, "source": "Mixed"}
-    vectors.append({"id": f"chunk_{i}", "values": vector, "metadata": metadata})
-    if i == 0:
-        print("First vector metadata:", metadata)
+if not articles:
+    print("Error: No articles found")
+    exit()
 
-index.upsert(vectors)
-print(f"Stored {len(vectors)} chunks in Pinecone")
+# Prepare data
+texts = [f"{article['title']} {article['content']}" for article in articles]
+metadatas = [
+    {
+        "title": article["title"],
+        "link": article["link"],
+        "content": article["content"],
+        "source": article["source"]
+    }
+    for article in articles
+]
+ids = [f"article_{i}" for i in range(len(articles))]
 
-# Wait longer and check index stats
-time.sleep(5)  # Increase to 5 seconds
-stats = index.describe_index_stats()
-print("Index stats after upsert:", stats)
-sample = index.fetch(ids=["chunk_0"])
-print("Stored chunk_0 after upsert:", sample)
+# Upload
+try:
+    vectorstore = PineconeVectorStore.from_texts(
+        texts=texts,
+        embedding=embedding_model,
+        metadatas=metadatas,
+        ids=ids,
+        index_name=index_name
+    )
+    print(f"✅ Uploaded {len(articles)} articles to Pinecone")
+except Exception as e:
+    print(f"Failed to upload: {e}")
+    exit()
